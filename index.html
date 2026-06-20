@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Proof — Document Search</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Source+Serif+4:opsz,wght@8..60,400;8..60,600;8..60,700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --navy:#16233F; --navy-2:#1B2A4A; --paper:#F6F3EC; --paper-2:#EFEAE0;
+    --gold:#C8A04D; --gold-dim:#A98A47; --ink:#23262B; --ink-soft:#5B6270;
+    --line:#DCD5C5; --err:#A33B3B; --radius:10px;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;}
+  body{background:var(--paper); color:var(--ink); font-family:'Inter',sans-serif; -webkit-font-smoothing:antialiased;}
+  .app{max-width:760px; margin:0 auto; padding:60px 24px 100px;}
+  .brandmark{display:flex; align-items:center; gap:14px; justify-content:center; margin-bottom:6px;}
+  .stamp{
+    width:46px;height:46px; border:2px solid var(--gold); border-radius:50%;
+    display:flex;align-items:center;justify-content:center; color:var(--gold-dim);
+    font-family:'JetBrains Mono',monospace; font-size:10px; transform:rotate(-8deg); flex-shrink:0;
+  }
+  h1{font-family:'Source Serif 4',serif; font-weight:700; font-size:34px; margin:0; color:var(--navy); letter-spacing:-0.5px; text-align:center;}
+  .tagline{font-family:'JetBrains Mono',monospace; font-size:12.5px; color:var(--ink-soft); text-align:center; margin-top:6px;}
+  .docCount{font-family:'JetBrains Mono',monospace; font-size:11px; color:var(--ink-soft); text-align:center; margin-top:14px;}
+
+  .ask-card{
+    background:#fff; border:1px solid var(--line); border-radius:var(--radius);
+    padding:22px; margin-top:34px;
+  }
+  .ask-row{display:flex; gap:10px;}
+  textarea#question{
+    flex:1; resize:none; border:1px solid var(--line); border-radius:8px; padding:14px 16px;
+    font-family:'Inter',sans-serif; font-size:15px; min-height:60px; background:var(--paper); color:var(--ink);
+  }
+  textarea#question:focus{outline:2px solid var(--gold); border-color:transparent;}
+  button.primary{
+    background:var(--navy); color:#fff; border:none; border-radius:8px; padding:0 24px;
+    font-weight:600; font-size:14px; cursor:pointer; transition:background .15s;
+  }
+  button.primary:hover{background:#0E1830;}
+  button.primary:disabled{background:#9AA1AE; cursor:not-allowed;}
+  .hint{font-size:12.5px; color:var(--ink-soft); margin-top:10px;}
+
+  .answer-box{margin-top:22px; border-top:1px solid var(--line); padding-top:18px; display:none;}
+  .answer-text{font-size:15.5px; line-height:1.65; color:var(--ink); white-space:pre-wrap;}
+  .answer-loading{font-family:'JetBrains Mono',monospace; font-size:12.5px; color:var(--gold-dim);}
+  .sources-toggle{margin-top:16px; font-family:'JetBrains Mono',monospace; font-size:11.5px; color:var(--ink-soft); cursor:pointer; user-select:none;}
+  .sources-list{margin-top:10px; display:none; flex-direction:column; gap:10px;}
+  .source-card{border-left:3px solid var(--gold); background:var(--paper); padding:10px 14px; border-radius:0 6px 6px 0;}
+  .source-card .src-name{font-family:'JetBrains Mono',monospace; font-size:11px; color:var(--navy); font-weight:600; margin-bottom:4px;}
+  .source-card .src-excerpt{font-size:12.5px; color:var(--ink-soft); line-height:1.5; white-space:pre-wrap;}
+  footer{text-align:center; margin-top:50px; font-size:11px; color:var(--ink-soft); font-family:'JetBrains Mono',monospace;}
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="brandmark"><div class="stamp">PROOF</div></div>
+  <h1>Proof</h1>
+  <div class="tagline">ask a question — get an answer pulled from our documents, with sources</div>
+  <div class="docCount" id="docCount">loading library…</div>
+
+  <div class="ask-card">
+    <div class="ask-row">
+      <textarea id="question" placeholder="Ask anything about what's in our document library…"></textarea>
+      <button class="primary" id="askBtn">Ask</button>
+    </div>
+    <div class="hint">Answers are pulled only from our documents, with the source named for every claim.</div>
+
+    <div class="answer-box" id="answerBox">
+      <div id="answerContent"></div>
+      <div class="sources-toggle" id="sourcesToggle" style="display:none;">▸ show source excerpts</div>
+      <div class="sources-list" id="sourcesList"></div>
+    </div>
+  </div>
+
+  <footer>proof — public document search</footer>
+</div>
+
+<script>
+(function(){
+  const docCount = document.getElementById('docCount');
+  const questionEl = document.getElementById('question');
+  const askBtn = document.getElementById('askBtn');
+  const answerBox = document.getElementById('answerBox');
+  const answerContent = document.getElementById('answerContent');
+  const sourcesToggle = document.getElementById('sourcesToggle');
+  const sourcesList = document.getElementById('sourcesList');
+
+  function escapeHtml(s){
+    const d = document.createElement('div');
+    d.textContent = s;
+    return d.innerHTML;
+  }
+
+  async function loadCount(){
+    try{
+      const r = await fetch('/api/docs');
+      const data = await r.json();
+      docCount.textContent = data.count + (data.count === 1 ? ' document' : ' documents') + ' in this library';
+    }catch(e){
+      docCount.textContent = '';
+    }
+  }
+
+  function renderAnswer(text, sources, isError){
+    answerBox.style.display = 'block';
+    answerContent.innerHTML = `<div class="answer-text" style="${isError ? 'color:var(--err);' : ''}">${escapeHtml(text)}</div>`;
+    if(sources && sources.length){
+      sourcesToggle.style.display = 'block';
+      sourcesToggle.textContent = '▸ show source excerpts (' + sources.length + ')';
+      sourcesList.style.display = 'none';
+      sourcesList.innerHTML = sources.map(s => `
+        <div class="source-card">
+          <div class="src-name">${escapeHtml(s.name)}</div>
+          <div class="src-excerpt">${escapeHtml(s.excerpt)}</div>
+        </div>
+      `).join('');
+      sourcesToggle.onclick = () => {
+        const showing = sourcesList.style.display === 'flex';
+        sourcesList.style.display = showing ? 'none' : 'flex';
+        sourcesToggle.textContent = (showing ? '▸ show' : '▾ hide') + ' source excerpts (' + sources.length + ')';
+      };
+    } else {
+      sourcesToggle.style.display = 'none';
+      sourcesList.style.display = 'none';
+    }
+  }
+
+  async function askQuestion(){
+    const query = questionEl.value.trim();
+    if(!query) return;
+    askBtn.disabled = true;
+    answerBox.style.display = 'block';
+    answerContent.innerHTML = '<div class="answer-loading">Searching the library…</div>';
+    sourcesToggle.style.display = 'none';
+    sourcesList.style.display = 'none';
+
+    try{
+      const resp = await fetch('/api/ask', {
+        method: 'POST',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({ query })
+      });
+      if(resp.status === 429){
+        const data = await resp.json();
+        renderAnswer(data.error, [], true);
+      } else {
+        const data = await resp.json();
+        renderAnswer(data.answer || 'No answer was returned.', data.sources || [], !data.answer);
+      }
+    }catch(e){
+      renderAnswer('Something went wrong reaching the search service. Please try again.', [], true);
+    }
+    askBtn.disabled = false;
+  }
+
+  askBtn.addEventListener('click', askQuestion);
+  questionEl.addEventListener('keydown', e => {
+    if(e.key === 'Enter' && (e.metaKey || e.ctrlKey)) askQuestion();
+  });
+
+  loadCount();
+})();
+</script>
+</body>
+</html>
